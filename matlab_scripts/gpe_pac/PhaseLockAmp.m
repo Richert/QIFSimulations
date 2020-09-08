@@ -18,9 +18,6 @@ PLAamp = [];
 %     highFreq = tempFreq;
 % end
 
-f0 = (lowFreq(1)+lowFreq(2))/2;
-Bw = lowFreq(2)-lowFreq(1);
-lowestFrec = f0 - Bw/2;
 sampleT = round( NT * fs/lowFreq(1));
 halfSampleT = round(sampleT/2);
 window = round(fs/lowFreq(1)/2);

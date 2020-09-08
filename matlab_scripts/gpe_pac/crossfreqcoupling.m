@@ -1,4 +1,4 @@
-function [MI, fphaseCenters, fampCenters] = get_pac_profile(data,srate,phase_band,amp_band,n_bins,n_low,n_high)
+function [MI, PPC, fphaseCenters, fampCenters] = crossfreqcoupling(data,srate,phase_band,amp_band,n_bins,n_low,n_high)
 %GET_PAC_PROFILE calculates PAC profile of a 1d timeseries (data) with a
 % sampling rate (srate) for combinations of phase frequencies and amplitude 
 % frequencies within the provided bands. 
@@ -9,7 +9,7 @@ function [MI, fphaseCenters, fampCenters] = get_pac_profile(data,srate,phase_ban
 pha_locut = phase_band(1);
 pha_hicut = phase_band(2);
 num_phabins = round((pha_hicut-pha_locut)/n_low);
-cutoff = 2*srate/pha_locut;
+cutoff = 4*srate/pha_locut;
 pnts = length(data(:, cutoff:end-cutoff));
 
 amp_locut = amp_band(1);
@@ -23,16 +23,13 @@ fphaseCenters = fphase(2:end)-diff(fphase)/2;
 fampCenters = famp(2:end)-diff(famp)/2;
 
 MI = zeros(num_phabins,num_ampbins);
+PPC = zeros(size(MI));
 
-data4phase= [];
-data4amp = [];
-Hdata4phase = [];
-Hdata4amp = [];
-
-data4phase= [];
+data4phase= zeros(num_phabins,pnts);
 data4amp = cell(num_phabins,1);
-Hdata4phase = [];
+Hdata4phase = zeros(size(data4phase));
 Hdata4amp = cell(num_phabins,1);
+getamp = cell(num_phabins,1);
 
 % filtering of the phase-containing frequencies
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -69,5 +66,18 @@ end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 MI(:,:) = get_modulation_index(getphase,getamp,n_bins);
+
+% phase-phase coupling calculation
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for i=1:num_phabins
+    lf_signal = data4phase(i,:);
+    hf_signals = data4amp{i};
+    low_band = [fphase(i),fphase(i+1)];
+    for j=1:num_ampbins
+        [~, ~, ppc_osc, ppc_env] = PhaseLockAmp(hf_signals(j,:)',lf_signal',low_band,srate,2);
+        PPC(i,j) = ppc_osc/ppc_env;
+    end
+end
 
 end

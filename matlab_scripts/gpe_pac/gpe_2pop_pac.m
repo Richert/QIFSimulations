@@ -18,8 +18,10 @@ data_idx = 2;
 n_bins = 32;
 
 % filter characteristics
-phase_band = [1, 20];
-amp_band = [50, 200];
+phase_band = [2, 32];
+amp_band = [50, 250];
+n_low = 2;
+n_high = 10;
 
 %% test plotting
 
@@ -40,8 +42,8 @@ for i=1:N
     condition = getfield(all_data, fn{1});
     stim_freqs(i) = condition.omega;
     stim_amps(i) = condition.alpha;
-    data = condition.data(data_idx, cutoff:cutoff2);
-    [pac, phase_freqs, amp_freqs] = get_pac_profile(data,sr,phase_band,amp_band,n_bins);
+    data = condition.data(data_idx, :);
+    [pac, phase_freqs, amp_freqs] = get_pac_profile(data,sr,phase_band,amp_band,n_bins,n_low,n_high);
     PAC_profiles{i} = pac;
     PAC_phase_freqs{i} = phase_freqs;
     PAC_amp_freqs{i} = amp_freqs;
@@ -55,7 +57,7 @@ end
 
 %% plot PAC profile for a number of conditions
 
-condition_indices = [61, 63, 65, 67, 69];
+condition_indices = [10, 20, 100, 200];
 for i=condition_indices
     figure(i);
     imagesc(PAC_phase_freqs{i},PAC_amp_freqs{i},PAC_profiles{i}');
@@ -63,7 +65,7 @@ for i=condition_indices
     colorbar;
 end
 
-%% extract maximum PAC value and its frequency pair for each condition
+%% extract maximum/mean PAC value and its frequency pair for each condition
 
 stim_freqs_unique = unique(stim_freqs);
 stim_amps_unique = unique(stim_amps);
@@ -71,6 +73,7 @@ n_cols = length(stim_freqs_unique);
 n_rows = length(stim_amps_unique);
 
 PAC_max = zeros(n_rows, n_cols);
+PAC_mean = zeros(size(PAC_max));
 PAC_fphase = zeros(size(PAC_max));
 PAC_famp = zeros(size(PAC_max));
 PAA_osc = zeros(size(PAC_max));
@@ -90,6 +93,7 @@ for i=1:N
     
     % save maximum PAC value, and the frequencies at maximum PAC
     PAC_max(row,col) = max(PAC_profiles{i},[],'all');
+    PAC_mean(row,col) = mean(PAC_profiles{i},'all');
     [max_row, max_col] = find(PAC_profiles{i}' == PAC_max(row,col));
     fphase = PAC_phase_freqs{i};
     famp = PAC_amp_freqs{i};
@@ -101,8 +105,8 @@ for i=1:N
     % calculate maximum of averaged waveform/envelope at driving frequency
     fn = fnames(i);
     condition = getfield(all_data, fn{1});
-    data = condition.data(data_idx, cutoff:cutoff2);
-    driver = condition.data(1, cutoff:cutoff2);
+    data = condition.data(data_idx, :);
+    driver = condition.data(1, :);
     [PLA_po_all, PLA_env_all, PLA_po_max, PLA_env_max] = PhaseLockAmp(data',driver',[stim_freqs(i)-0.5, stim_freqs(i)+0.5],sr,1);
     PAA_osc(row,col) = PLA_po_max;
     PAA_env(row,col) = PLA_env_max;
@@ -117,6 +121,14 @@ imagesc(stim_freqs_unique,stim_amps_unique,PAC_max);
 axis xy;
 colorbar;
 saveas(gcf, 'PAC_max_bs', 'svg')
+
+% mean PAC value
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_mean);
+axis xy;
+colorbar;
+saveas(gcf, 'PAC_mean_bs', 'svg')
+
 
 % phase frequency at maximum PAC value
 figure;
