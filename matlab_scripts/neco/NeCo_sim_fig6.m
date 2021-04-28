@@ -199,7 +199,7 @@ end
 save('neco_fig6_data.mat', 'freqs', 'amps', 'freq_mac', 'amp_mac')
 
 figure()        
-imagesc(freqs - freq_mac)
+imagesc((freqs - freq_mac)/freq_mac)
 colormap('jet');
 colorbar()
 xlabel('p')
@@ -211,7 +211,7 @@ yticks(1:length(Ns))
 yticklabels(Ns)
 
 figure()        
-imagesc(amps - amp_mac)
+imagesc((amps - amp_mac)/amp_mac)
 colormap('jet');
 colorbar()
 xlabel('p')
