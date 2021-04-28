@@ -3,66 +3,30 @@ clc;
 clear all
 close all
 
-%% load input signal and define parameters
+%% load existing PAC calculations
 
-% data loading
-all_data = load('bs_data.mat');
-fnames = fieldnames(all_data);
+condition = 'lc';
+load(sprintf('/home/rgast/ownCloud/data/gpe_2pop_forced/PAC_PPC_profiles_%s.mat', condition));
+phase_freqs = PAC_phase_freqs{1};
+amp_freqs = PAC_amp_freqs{1};
 
-% data characteristics
-N = numel(fnames);
-sr = 1000;
-cutoff = ceil(1*sr);
-cutoff2 = ceil(20*sr);
-data_idx = 2;
-n_bins = 32;
+%% plot PAC and PPC profile for a number of conditions
 
-% filter characteristics
-phase_band = [2, 32];
-amp_band = [50, 250];
-n_low = 2;
-n_high = 10;
-
-%% test plotting
-
-data_tmp = all_data.circuit_8.data(data_idx, cutoff:cutoff2);
-figure();
-plot(data_tmp');
-
-%% calculate PAC profiles for each condition
-
-stim_freqs = zeros(1,N);
-stim_amps = zeros(size(stim_freqs));
-PAC_profiles = cell(N, 1);
-PAC_phase_freqs = cell(N, 1);
-PAC_amp_freqs = cell(N, 1);
-
-for i=1:N
-    fn = fnames(i);
-    condition = getfield(all_data, fn{1});
-    stim_freqs(i) = condition.omega;
-    stim_amps(i) = condition.alpha;
-    data = condition.data(data_idx, :);
-    [pac, phase_freqs, amp_freqs] = get_pac_profile(data,sr,phase_band,amp_band,n_bins,n_low,n_high);
-    PAC_profiles{i} = pac;
-    PAC_phase_freqs{i} = phase_freqs;
-    PAC_amp_freqs{i} = amp_freqs;
-end
-
-%% alternatively load existing PAC calculations
-
-% load('PAC_oscillatory.mat')
-% phase_freqs = PAC_phase_freqs{1};
-% amp_freqs = PAC_amp_freqs{1};
-
-%% plot PAC profile for a number of conditions
-
-condition_indices = [10, 20, 100, 200];
+condition_indices = [10, 20, 100, 120];
 for i=condition_indices
-    figure(i);
+    
+    % PAC
+    figure();
     imagesc(PAC_phase_freqs{i},PAC_amp_freqs{i},PAC_profiles{i}');
     axis xy;
     colorbar;
+    title(sprintf('PAC: \\alpha = %.2f, \\omega = %.2f', stim_amps(i), stim_freqs(i)))
+    
+    figure();
+    imagesc(PAC_phase_freqs{i},PAC_amp_freqs{i},PPC_profiles{i}');
+    axis xy;
+    colorbar;
+    title(sprintf('PPC: \\alpha = %.2f, \\omega = %.2f', stim_amps(i), stim_freqs(i)))
 end
 
 %% extract maximum/mean PAC value and its frequency pair for each condition
@@ -73,17 +37,26 @@ n_cols = length(stim_freqs_unique);
 n_rows = length(stim_amps_unique);
 
 PAC_max = zeros(n_rows, n_cols);
+PAC_max_pl = zeros(size(PAC_max));
+PAC_max_npl = zeros(size(PAC_max));
 PAC_mean = zeros(size(PAC_max));
+PAC_mean_pl = zeros(size(PAC_max));
+PAC_mean_npl = zeros(size(PAC_max));
+
 PAC_fphase = zeros(size(PAC_max));
 PAC_famp = zeros(size(PAC_max));
-PAA_osc = zeros(size(PAC_max));
-PAA_env = zeros(size(PAC_max));
-n_pac_cols = length(phase_freqs);
-n_pac_rows = length(amp_freqs);
 
-for i=1:N
+PPC_atmax = zeros(size(PAC_max));
+PPC_max = zeros(size(PAC_max));
+PPC_mean = zeros(size(PAC_max));
+
+PAC_PPC_corr = zeros(size(PAC_max));
+
+for i=1:length(PAC_profiles)
     
-    % get the stimulation frequency and amplitude for condition i
+    % get data for condition i
+    pac = PAC_profiles{i}';
+    ppc = PPC_profiles{i}';
     omega = stim_freqs(i);
     alpha = stim_amps(i);
     
@@ -91,25 +64,31 @@ for i=1:N
     col = find(stim_freqs_unique == omega);
     row = find(stim_amps_unique == alpha);
     
-    % save maximum PAC value, and the frequencies at maximum PAC
-    PAC_max(row,col) = max(PAC_profiles{i},[],'all');
-    PAC_mean(row,col) = mean(PAC_profiles{i},'all');
-    [max_row, max_col] = find(PAC_profiles{i}' == PAC_max(row,col));
+    % save PAC aggregates
+    PAC_max(row,col) = max(pac,[],'all');
+    PAC_max_pl(row,col) = max(pac.*ppc,[],'all');
+    PAC_max_npl(row,col) = max(pac.*(1-ppc),[],'all');
+    PAC_mean(row,col) = mean(pac,'all');
+    PAC_mean_pl(row,col) = mean(pac.*ppc, 'all');
+    PAC_mean_npl(row,col) = mean(pac.*(1-ppc), 'all');
+    
+    % save phase freq, amp freq and ppc at max PAC
+    [max_row, max_col] = find(pac == PAC_max(row,col));
     fphase = PAC_phase_freqs{i};
     famp = PAC_amp_freqs{i};
     fphase_atmax = fphase(max_col);
     famp_atmax = famp(max_row);
     PAC_fphase(row,col) = fphase_atmax;
     PAC_famp(row,col) = famp(max_row);
+    PPC_atmax(row,col) = ppc(max_row,max_col);
+    PPC_max(row,col) = max(ppc,[],'all');
+    PPC_mean(row,col) = mean(ppc,'all');
     
-    % calculate maximum of averaged waveform/envelope at driving frequency
-    fn = fnames(i);
-    condition = getfield(all_data, fn{1});
-    data = condition.data(data_idx, :);
-    driver = condition.data(1, :);
-    [PLA_po_all, PLA_env_all, PLA_po_max, PLA_env_max] = PhaseLockAmp(data',driver',[stim_freqs(i)-0.5, stim_freqs(i)+0.5],sr,1);
-    PAA_osc(row,col) = PLA_po_max;
-    PAA_env(row,col) = PLA_env_max;
+    % calculate correlation between PAC and PPC profiles
+    pac_z = zscore(pac(:));
+    ppc_z = zscore(ppc(:));
+    c = corrcoef(pac_z, ppc_z);
+    PAC_PPC_corr(row,col) = c(1,2);
     
 end
 
@@ -120,47 +99,88 @@ figure;
 imagesc(stim_freqs_unique,stim_amps_unique,PAC_max);
 axis xy;
 colorbar;
-saveas(gcf, 'PAC_max_bs', 'svg')
+title('max PAC')
+
+% maximum PAC*PPC value 
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_max_pl);
+axis xy;
+colorbar;
+title('max PAC*PPC')
+
+% maximum PAC*(1-PPC) value 
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_max_npl);
+axis xy;
+colorbar;
+title('max PAC*(1-PPC)')
 
 % mean PAC value
 figure;
 imagesc(stim_freqs_unique,stim_amps_unique,PAC_mean);
 axis xy;
 colorbar;
-saveas(gcf, 'PAC_mean_bs', 'svg')
+title('mean PAC')
 
+% mean PAC*PPC value
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_mean_pl);
+axis xy;
+colorbar;
+title('mean PAC*PPC')
+
+% mean PAC*(1-PPC) value
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_mean_npl);
+axis xy;
+colorbar;
+title('mean PAC*(1-PPC)')
 
 % phase frequency at maximum PAC value
 figure;
 imagesc(stim_freqs_unique,stim_amps_unique,PAC_fphase);
 axis xy;
 colorbar;
-saveas(gcf, 'PAC_fphase_bs', 'svg')
+title('Frequency of phase at max PAC')
 
 % amplitude frequency at maximum PAC value
 figure;
 imagesc(stim_freqs_unique,stim_amps_unique,PAC_famp);
 axis xy;
 colorbar;
-saveas(gcf, 'PAC_famp_bs', 'svg')
+title('Frequency of amplitude at max PAC')
 
-% phase-averaged waveform of observed signal (based on driver phase)
+% PPC at max PAC
 figure;
-imagesc(stim_freqs_unique,stim_amps_unique,PAA_osc);
+imagesc(stim_freqs_unique,stim_amps_unique,PPC_atmax);
 axis xy;
 colorbar;
-saveas(gcf, 'PAA_osc_bs', 'svg')
+title('PPC at max PAC')
 
-% phase-averaged envelope of observed signal (based on driver phase)
+% max PPC
 figure;
-imagesc(stim_freqs_unique,stim_amps_unique,PAA_osc ./ PAA_env);
+imagesc(stim_freqs_unique,stim_amps_unique,PPC_max);
 axis xy;
 colorbar;
-saveas(gcf, 'PAA_env_bs', 'svg')
+title('max PPC')
+
+% mean PPC
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PPC_max);
+axis xy;
+colorbar;
+title('mean PPC')
+
+% PAC-PPC correlation
+figure;
+imagesc(stim_freqs_unique,stim_amps_unique,PAC_PPC_corr);
+axis xy;
+colorbar;
+title('corr(PAC,PPC)')
 
 %% save final data to mat files
 
-name = 'PAC_bistable.mat';
-save(name, 'PAC_profiles', 'PAC_phase_freqs', 'PAC_amp_freqs', 'stim_freqs', 'stim_amps', ...
-     'stim_freqs_unique', 'stim_amps_unique', 'PAC_max', 'PAC_fphase', 'PAC_famp', ...
-     'PAA_osc', 'PAA_env')
+name = sprintf('PAC_PPC_plotting_data_%s.mat', condition);
+save(name, 'PAC_max', 'PAC_max_pl', 'PAC_max_npl', 'PAC_mean', 'PAC_mean_pl', ...
+    'PAC_mean_npl', 'PPC_atmax', 'PPC_max', 'PPC_mean', 'PAC_famp', 'PAC_fphase', ...
+    'stim_freqs_unique', 'stim_amps_unique', 'PAC_PPC_corr')

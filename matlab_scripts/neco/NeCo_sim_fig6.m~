@@ -1,0 +1,232 @@
+close all; clear all;
+
+% parameter settings
+%%%%%%%%%%%%%%%%%%%%
+
+% general parameters
+dt = 1e-3;
+dt2 = 1e-2;
+N2 = 5e1;
+T_sim = 220.0;
+T = round(T_sim/dt);
+T_init = 20.0;
+T_rec = round((T_sim - T_init)/dt);
+T_store = T_init/dt;
+v_mac_init = -2;
+
+% QIF parameters
+Delta = 2.0;
+eta = -5.5;
+J = 15.*sqrt(Delta);
+V_th = 1e2;
+
+% synpatic efficacy adaptation
+tau_a = 10.0;
+alpha = 0.05;
+
+% sweep parameters
+Ns = [1, 2, 4, 8, 16, 32, 64, 128, 264, 512, 1024] * 100;
+Ps = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
+reps = 1;
+interburst_interval = zeros(reps, length(Ns), length(Ps));
+burstiness = zeros(length(Ns), length(Ps));
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+% macroscopic simulation %
+%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% macroscopic state variables
+r_mac_1 = 0.;
+v_mac_1 = v_mac_init;
+e_mac_1 = 0.;
+a_mac_1 = 0.;
+
+% macroscopic observation variables
+r_mac_rec = zeros(1,T);
+v_mac_rec = zeros(size(r_mac_rec));
+e_mac_rec = zeros(size(r_mac_rec));
+r_mac_rec_av = zeros(1,T_rec.*dt2);
+v_mac_rec_av = zeros(size(r_mac_rec_av));
+e_mac_rec_av = zeros(size(r_mac_rec_av));
+
+% input definition
+mu = 0.0; % -> for the low activity regime (eta = -6.0)
+stim = T_init; % -> for the low activity regime (eta = -6.0)
+dur = 200.0;
+It = dt.*[1:T];
+I = 0.*((It>0)&(It<T_sim)) + mu.*((It>stim)&(It<stim+dur));
+
+for t = 1:T
+
+    % calculate input
+    IJ_mac = J.*r_mac_1.*(1 - e_mac_1);
+    
+    % macroscopic state variable evolution
+    r_mac_2 = r_mac_1 + dt .* (Delta./pi + 2 .* v_mac_1.*r_mac_1);
+    v_mac_2 = v_mac_1 + dt .* (v_mac_1.^2 + eta + I(t) + IJ_mac - (pi.*r_mac_1).^2);   
+    e_mac_2 = e_mac_1 + dt .* a_mac_1;
+    a_mac_2 = a_mac_1 + dt .* (alpha.*r_mac_1./tau_a - 2.*a_mac_1./tau_a - e_mac_1./tau_a.^2);
+    
+    % macroscopic state variable updates
+    v_mac_1 = v_mac_2;
+    r_mac_1 = r_mac_2;
+    a_mac_1 = a_mac_2;
+    e_mac_1 = e_mac_2;
+    
+    % macroscopic state variable recordings
+    r_mac_rec(t) = r_mac_2;
+    v_mac_rec(t) = v_mac_2;
+    e_mac_rec(t) = e_mac_2;
+    
+    % coarse grained observations
+    if t > T_store
+
+        t_tmp = t-T_store;
+
+        if (mod(t,1/dt2)==0)
+
+            % macroscopic state variables
+            v_mac_rec_av(t_tmp.*dt2) = mean(v_mac_rec(t-1/dt2+1:t));
+            r_mac_rec_av(t_tmp.*dt2) = mean(r_mac_rec(t-1/dt2+1:t));
+            e_mac_rec_av(t_tmp.*dt2) = mean(e_mac_rec(t-1/dt2+1:t));
+
+        end
+    end
+                
+end
+
+% macroscopic burst detection
+idx_mac_p1 = find(r_mac_rec_av > 1., 1);
+if ~isempty(idx_mac_p1)
+    idx_mac_t1 = find(r_mac_rec_av(idx_mac_p1:end) < 0.5, 1);
+    if ~isempty(idx_mac_t1)
+        idx_mac_t1 = idx_mac_t1 + idx_mac_p1;
+        idx_mac_p2 = find(r_mac_rec_av(idx_mac_t1:end) > 1., 1);
+        if ~isempty(idx_mac_p2)
+            idx_mac_p2 = idx_mac_p2 + idx_mac_t1;
+        end
+    end
+end
+ibi_mac = (idx_mac_p2 - idx_mac_p1)*dt2;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% microscopic simulations %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+for r=1:reps
+    i = 1;
+    for N=Ns
+        j = 1;
+        for p=Ps
+
+            % initializations
+            %%%%%%%%%%%%%%%%%
+
+            eta_0 = eta+Delta.*tan((pi/2).*(2.*[1:N]-N-1)./(N+1));
+            C = rand(N, N);
+            C_sorted = sort(C(:), 'ascend');
+            C = (C <= C_sorted(N^2*p)) * 1.0;
+
+            % microscopic state variables
+            v_1 = v_mac_init.*ones(size(eta_0));
+            e_1 = zeros(size(v_1));
+            a_1 = zeros(size(v_1));
+
+            % spiking mechanism variables
+            wait = zeros(1,N);
+            spike_n = zeros(1,N);
+            spike_t = wait;
+
+            % microscopic observation variables
+            r_rec = zeros(1,T);
+            v_rec = zeros(size(r_rec));
+            e_rec = zeros(size(r_rec));
+            r_rec_av = zeros(1,T_rec.*dt2);
+            v_rec_av = zeros(size(r_rec_av));
+            e_rec_av = zeros(size(r_rec_av));
+
+            % simulation
+            %%%%%%%%%%%%
+
+            for t = 1:T
+
+                % calculate current spikes
+                [fr, spike_t, spike_n, mask, wait] = get_network_input(spike_t, wait, dt);
+                s = spike_n*C./(dt*N);
+                IJ = J.*s.*(1 - min(1, e_1))./p;
+
+                % microscopic state variable evolution
+                v_2 = v_1 + dt .* mask .* (v_1.^2 + eta_0 + I(t) + IJ);
+                e_2 = e_1 + dt .* mask .* a_1;
+                a_2 = a_1 + dt .* mask .* (alpha.*s./tau_a - 2.*a_1./tau_a - e_1./tau_a.^2);
+
+                % microscopic spiking mechanism
+                spike = (v_2>V_th);
+                wait(spike) = (2./v_2(spike))./dt - (6*(eta_0(spike)+IJ(spike))./v_2(spike).^3)./dt;
+                spike_t(spike) = (1./v_2(spike))./dt;
+                v_2(spike) = -v_2(spike);
+
+                % microscopic state variable updates
+                v_1 = v_2;
+                a_1 = a_2;
+                e_1 = e_2;
+
+                % microscopic state variable recordings
+                r_rec(t) = mean(spike_n)./dt;
+                v_rec(t) = mean(v_2(wait==0));
+                e_rec(t) = mean(e_2(wait==0));
+
+                % coarse grained observations
+                if t > T_store
+
+                    t_tmp = t-T_store;
+
+                    if (mod(t,1/dt2)==0)
+
+                        % microscopic state variables
+                        v_rec_av(t_tmp.*dt2) = mean(v_rec(t-1/dt2+1:t));
+                        r_rec_av(t_tmp.*dt2) = mean(r_rec(t-1/dt2+1:t));
+                        e_rec_av(t_tmp.*dt2) = mean(e_rec(t-1/dt2+1:t));
+
+                    end
+                end
+
+            end
+
+            % evaluate match between macroscopic and microscopic description
+            idx_p1 = find(r_rec_av > 1., 1);
+            if ~isempty(idx_p1)
+                idx_t1 = find(r_rec_av(idx_p1:end) < 0.5, 1);
+                if ~isempty(idx_t1)
+                    idx_t1 = idx_t1 + idx_p1;
+                    idx_p2 = find(r_rec_av(idx_t1:end) > 1., 1);
+                    if ~isempty(idx_p2)
+                        idx_p2 = idx_p2 + idx_t1;
+                        burstiness(i,j) = 1;
+                        interburst_interval(r,i,j) = ((idx_p2 - idx_p1)*dt2 - ibi_mac) / ibi_mac;
+                    end
+                end
+            end
+            j = j+1;
+            
+            % plot firing rates
+%             figure()
+%             hold on
+%             plot(r_rec_av)
+%             plot(r_mac_rec_av)
+%             title('N = ' + string(N) + ', p = ' + string(p))
+%             hold off
+            
+        end
+        i = i+1;
+    end
+end
+
+save('neco_fig6_data.mat', 'burstiness', 'interburst_interval')
+
+figure()        
+imagesc(squeeze(mean(interburst_interval, 1)).*burstiness)
+colorbar()
+saveas(gcf, 'IBI', 'svg')
+
+% END OF FILE

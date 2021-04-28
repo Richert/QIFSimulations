@@ -6,7 +6,7 @@ close all; clear all;
 % general parameters
 dt = 5e-4;
 dt2 = 5e-3;
-T_sim = 120.0;
+T_sim = 410.0;
 T = round(T_sim/dt);
 T_init = 10.0;
 T_rec = round((T_sim)/dt);
@@ -14,9 +14,9 @@ T_store = 0.0/dt;
 v_mac_init = -2;
 
 % QIF parameters
-tau = 10.0;
+tau = 1.0;
 Delta = 2.0*tau^2;
-eta = -4.0*Delta;
+eta = -3.0*Delta;
 J = 15.*sqrt(Delta);
 
 % synpatic efficacy adaptation
@@ -42,9 +42,9 @@ v_mac_rec_av = zeros(size(r_mac_rec_av));
 e_mac_rec_av = zeros(size(r_mac_rec_av));
 
 % input definition
-mu = 1.25*Delta; % -> for the low activity regime (eta = -6.0)
-stim = T_init;
-dur = 100.0;
+mu = 0.25*Delta; % -> for the low activity regime (eta = -6.0)
+stim = 100+T_init;
+dur = 200.0;
 It = dt.*[1:T];
 I = 0.*((It>0)&(It<T_sim)) + mu.*((It>stim)&(It<stim+dur));
 
@@ -56,8 +56,8 @@ for t = 1:T
     % macroscopic state variable evolution
     r_mac_2 = r_mac_1 + dt .* (Delta./(pi*tau) + 2 .* v_mac_1.*r_mac_1)/tau;
     v_mac_2 = v_mac_1 + dt .* (v_mac_1.^2 + eta + I(t) + IJ_mac*tau - (pi.*r_mac_1*tau).^2)/tau;   
-    e_mac_2 = e_mac_1 + dt .* a_mac_1;
-    a_mac_2 = a_mac_1 + dt .* (alpha.*r_mac_1./tau_a - 2.*a_mac_1./tau_a - e_mac_1./tau_a.^2);
+    e_mac_2 = e_mac_1 + dt .* a_mac_1 / tau_a;
+    a_mac_2 = a_mac_1 + dt .* (alpha*tau_a.*r_mac_1 - 2.*a_mac_1 - e_mac_1) / tau_a;
     
     % macroscopic state variable updates
     v_mac_1 = v_mac_2;
